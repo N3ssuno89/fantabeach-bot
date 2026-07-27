@@ -29,6 +29,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pillow requests numpy
+      - name: Controlla template
+        run: python verifica.py
       - name: Genera e invia
         env:
           SUPABASE_URL:   ${{ secrets.SUPABASE_URL }}
