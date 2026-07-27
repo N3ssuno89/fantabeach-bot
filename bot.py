@@ -121,7 +121,7 @@ def main():
             inviate += 1
             time.sleep(PAUSA)
 
-        if inviate >= MAX_PER_GIRO:
+        if not PROVA and inviate >= MAX_PER_GIRO:
             print(f"raggiunto il limite di {MAX_PER_GIRO}, il resto al prossimo giro"); break
 
     print(f"inviate: {inviate} | saltate: {saltate} | allarmi: {len(allarmi)}")
