@@ -1,0 +1,44 @@
+name: Pubblica risultati
+
+on:
+  schedule:
+    - cron: '3,13,23,33,43,53 * * * *'
+  workflow_dispatch:
+    inputs:
+      tornei:
+        description: 'vis_id separati da virgola (vuoto = tornei in corso)'
+        required: false
+      prova:
+        description: 'true = genera senza inviare su Telegram'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: pubblica
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pillow requests
+      - name: Genera e invia
+        env:
+          SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:  ${{ secrets.SUPABASE_ANON_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          TORNEI: ${{ github.event.inputs.tornei }}
+          PROVA:  ${{ github.event.inputs.prova }}
+        run: python bot.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: immagini
+          path: out/
+          if-no-files-found: ignore
+          retention-days: 7
