@@ -12,6 +12,9 @@ on:
         description: 'true = genera senza inviare su Telegram'
         required: false
         default: 'false'
+      limite:
+        description: 'quante inviarne al massimo (vuoto = normale)'
+        required: false
 
 concurrency:
   group: pubblica
@@ -21,21 +24,22 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install pillow requests numpy
       - name: Genera e invia
         env:
-          SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY:  ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_URL:   ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:   ${{ secrets.SUPABASE_ANON_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT:  ${{ secrets.TELEGRAM_CHAT_ID }}
           TORNEI: ${{ github.event.inputs.tornei }}
           PROVA:  ${{ github.event.inputs.prova }}
+          LIMITE: ${{ github.event.inputs.limite }}
         run: python bot.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: immagini
