@@ -27,7 +27,7 @@ TG_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 PROVA = os.environ.get("PROVA", "").lower() == "true"
 FORZA = os.environ.get("FORZA", "").lower() == "true"
 REPLAY = os.environ.get("REPLAY", "").lower() == "true"
-TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip()]
+TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip().isdigit()]
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 MAPPA = json.loads(pathlib.Path("templates/index.json").read_text())
