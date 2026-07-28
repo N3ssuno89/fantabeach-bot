@@ -10,9 +10,12 @@ POOL (gare 19-34)
   t1 = tutte le partite dei gironi concluse
 
 Ogni stato esce una volta sola: la chiave in posted_items lo contiene.
-Con PROVA=true genera sempre l'immagine con i dati del momento, senza pubblicare.
+PROVA=true  genera sempre, negli artifact, senza pubblicare.
+FORZA=true  pubblica su Telegram i dati del momento, anche fuori dagli stati:
+            usa una chiave con l'orario, quindi non blocca gli stati automatici.
 """
 import os, json, pathlib, requests
+from datetime import datetime, timezone
 from tabellone_quali import render as render_quali, S
 from tabellone_pool import render as render_pool
 
@@ -21,6 +24,7 @@ SB_KEY = os.environ["SUPABASE_KEY"]
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 PROVA = os.environ.get("PROVA", "").lower() == "true"
+FORZA = os.environ.get("FORZA", "").lower() == "true"
 TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip()]
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
@@ -79,7 +83,10 @@ def dati_quali(partite, seeds):
 def stato_pool(p):
     g = [m for m in p if 19 <= m["match_no"] <= 34]
     if len(g) < 16: return None
-    if all(GIOCATA(m) for m in g): return "t1"
+    l1 = [m for m in g if m["match_no"] <= 26]
+    l2 = [m for m in g if m["match_no"] >= 27]
+    if all(GIOCATA(m) for m in l2): return "t2"
+    if all(GIOCATA(m) for m in l1) and not any(GIOCATA(m) for m in l2): return "t1"
     if not any(GIOCATA(m) for m in g): return "t0"
     return None
 
@@ -126,7 +133,8 @@ ETICHETTE = {
     ("quali", "t1"): "Qualificazioni — 1° turno concluso",
     ("quali", "t2"): "Qualificazioni — coppie qualificate",
     ("pool", "t0"): "Gironi — accoppiamenti",
-    ("pool", "t1"): "Gironi — classifiche finali",
+    ("pool", "t1"): "Gironi — semifinali concluse",
+    ("pool", "t2"): "Gironi — classifiche finali",
 }
 
 
@@ -161,11 +169,14 @@ def main():
             st = calcola(sub)
             print(f"  {v} {tipo}: {len(sub)} partite -> stato {st or '-'}")
             if not sub: continue
-            if st is None and not PROVA: continue
+            if st is None and not (PROVA or FORZA): continue
 
-            chiave = f"{tipo}:{v}:{st}"
-            if st and not PROVA and sb("posted_items", {"select": "id", "id": f"eq.{chiave}"}):
-                print(f"     {st} gia' pubblicato"); continue
+            if FORZA:
+                chiave = f"{tipo}:{v}:manuale:{datetime.now(timezone.utc):%Y-%m-%dT%H:%M}"
+            else:
+                chiave = f"{tipo}:{v}:{st}"
+                if not PROVA and sb("posted_items", {"select": "id", "id": f"eq.{chiave}"}):
+                    print(f"     {st} gia' pubblicato"); continue
 
             sf = sfondo_per(tappa, sfondo_nome)
             if sf is None:
@@ -181,7 +192,10 @@ def main():
             if PROVA:
                 print(f"     [prova] generata {dest.name}"); continue
             t = tor.get(v, {})
-            cap = f"{t.get('city','')} {t.get('gender','')} — {ETICHETTE[(tipo, st)]}"
+            testo = ETICHETTE.get((tipo, st)) or (
+                "Tabellone qualificazioni" if tipo == "quali" else "Gironi")
+            cap = f"{t.get('city','')} {t.get('gender','')} — {testo}"
+            if FORZA: cap += " (aggiornamento)"
             try:
                 mid = invia(str(dest), cap)
             except Exception as ex:
