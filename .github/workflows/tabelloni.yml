@@ -1,4 +1,4 @@
-name: Tabelloni qualifiche
+name: Tabelloni
 
 on:
   schedule:
