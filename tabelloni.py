@@ -14,7 +14,7 @@ PROVA=true  genera sempre, negli artifact, senza pubblicare.
 FORZA=true  pubblica su Telegram i dati del momento, anche fuori dagli stati:
             usa una chiave con l'orario, quindi non blocca gli stati automatici.
 """
-import os, json, pathlib, requests
+import os, json, time, pathlib, requests
 from datetime import datetime, timezone
 from tabellone_quali import render as render_quali, S
 from tabellone_pool import render as render_pool
@@ -26,6 +26,7 @@ TG_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 PROVA = os.environ.get("PROVA", "").lower() == "true"
 FORZA = os.environ.get("FORZA", "").lower() == "true"
+REPLAY = os.environ.get("REPLAY", "").lower() == "true"
 TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip()]
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
@@ -118,7 +119,8 @@ TURNI = {"t0": (35, 42), "t1": (35, 42), "t2": (43, 46), "t3": (47, 48)}
 
 def stato_md(p):
     g = lambda a, b: [m for m in p if a <= m["match_no"] <= b]
-    r12, qf, sf = g(35, 42), g(43, 46), g(47, 48)
+    r12, qf, sf, fi = g(35, 42), g(43, 46), g(47, 48), g(49, 50)
+    if len(fi) == 2 and all(GIOCATA(m) for m in fi): return "t4"
     if len(sf) == 2 and all(GIOCATA(m) for m in sf): return "t3"
     if len(qf) == 4 and all(GIOCATA(m) for m in qf): return "t2"
     if len(r12) == 8 and all(GIOCATA(m) for m in r12): return "t1"
@@ -137,7 +139,8 @@ def dati_md(partite, seeds, st):
     blocchi = {"t0": (range(35, 43), range(43, 47), "ROUND OF 12", "QUARTI DI FINALE"),
                "t1": (range(35, 43), range(43, 47), "ROUND OF 12", "QUARTI DI FINALE"),
                "t2": (range(43, 47), range(47, 49), "QUARTI DI FINALE", "SEMIFINALI"),
-               "t3": (range(47, 49), (50, 49), "SEMIFINALI", "FINALI")}[st]
+               "t3": (range(47, 49), (50, 49), "SEMIFINALI", "FINALI"),
+               "t4": (range(47, 49), (50, 49), "SEMIFINALI", "FINALI")}[st]
     sx, dx, tsx, tdx = blocchi
     return ([coppia(n) for n in sx], [coppia(n) for n in dx], tsx, tdx)
 
@@ -169,7 +172,36 @@ ETICHETTE = {
     ("md", "t1"): "Round of 12 — risultati e quarti",
     ("md", "t2"): "Quarti — risultati e semifinali",
     ("md", "t3"): "Semifinali — risultati e finali",
+    ("md", "t4"): "Tabellone principale — risultati finali",
 }
+
+
+TAGLI = {"quali": [("t0", 0), ("t1", 12), ("t2", 18)],
+         "pool":  [("t0", 18), ("t1", 26), ("t2", 34)],
+         "md":    [("t0", 34), ("t1", 42), ("t2", 46), ("t3", 48), ("t4", 50)]}
+
+
+def maschera(partite, taglio):
+    """Copia le partite nascondendo i risultati oltre il taglio."""
+    out = []
+    for m in partite:
+        c = dict(m)
+        if c["match_no"] > taglio:
+            c["result"] = None; c["status"] = "scheduled"
+        out.append(c)
+    return out
+
+
+def disegna_immagine(tipo, st, sf, sub, seeds, dest, costruisci, disegna):
+    if tipo == "md":
+        sx, dx, tsx, tdx = dati_md(sub, seeds, st)
+        finali = st in ("t3", "t4")
+        et = ["FINALE 1° POSTO", "FINALE 3° POSTO"] if finali else None
+        albero(sf, sx, dx, tsx, tdx, str(dest), oro_dx=finali, etichette=et)
+    elif tipo == "pool":
+        disegna(sf, costruisci(sub, seeds), str(dest))
+    else:
+        disegna(costruisci(sub, seeds), str(dest), sfondo=sf)
 
 
 def main():
@@ -202,9 +234,34 @@ def main():
              None, None, "BRACKET_MAIN_DRAW"),
         ):
             sub = [m for m in partite if filtro(m)]
+            if not sub: continue
+
+            if REPLAY:
+                for nome, taglio in TAGLI[tipo]:
+                    dati = maschera(sub, taglio)
+                    if calcola(dati) != nome:
+                        print(f"  {v} {tipo} {nome}: non ricostruibile"); continue
+                    sf = sfondo_per(tappa, sfondo_nome)
+                    if sf is None:
+                        allarmi.append(f"sfondo mancante: templates/{tappa}/{sfondo_nome}"); break
+                    dest = OUT / f"{v}_{tipo.upper()}_{nome}.png"
+                    try:
+                        disegna_immagine(tipo, nome, sf, dati, seeds, dest,
+                                         costruisci, disegna)
+                    except Exception as ex:
+                        allarmi.append(f"replay {v}/{tipo}/{nome}: {ex}"); continue
+                    print(f"  {v} {tipo} {nome}: generata")
+                    if not PROVA:
+                        t = tor.get(v, {})
+                        cap = f"{t.get('city','')} {t.get('gender','')} — {ETICHETTE[(tipo,nome)]}"
+                        try:
+                            invia(str(dest), cap); time.sleep(4)
+                        except Exception as ex:
+                            allarmi.append(f"invio replay {v}/{tipo}/{nome}: {ex}")
+                continue
+
             st = calcola(sub)
             print(f"  {v} {tipo}: {len(sub)} partite -> stato {st or '-'}")
-            if not sub: continue
             if st is None and not (PROVA or FORZA): continue
 
             if FORZA:
@@ -220,23 +277,14 @@ def main():
 
             dest = OUT / f"{v}_{tipo.upper()}_{st or 'manuale'}.png"
             try:
-                if tipo == "md":
-                    sx, dx, tsx, tdx = dati_md(sub, seeds, st or "t1")
-                    et = ["FINALE 1° POSTO", "FINALE 3° POSTO"] if (st or "") == "t3" else None
-                    albero(sf, sx, dx, tsx, tdx, str(dest),
-                           oro_dx=((st or "") == "t3"), etichette=et)
-                elif tipo == "pool":
-                    disegna(sf, costruisci(sub, seeds), str(dest))
-                else:
-                    disegna(costruisci(sub, seeds), str(dest), sfondo=sf)
+                disegna_immagine(tipo, st or "t1", sf, sub, seeds, dest, costruisci, disegna)
             except Exception as ex:
                 allarmi.append(f"render {v}/{tipo}/{st}: {ex}"); continue
 
             if PROVA:
                 print(f"     [prova] generata {dest.name}"); continue
             t = tor.get(v, {})
-            testo = ETICHETTE.get((tipo, st)) or (
-                "Tabellone qualificazioni" if tipo == "quali" else "Gironi")
+            testo = ETICHETTE.get((tipo, st)) or ("Tabellone" if tipo != "pool" else "Gironi")
             cap = f"{t.get('city','')} {t.get('gender','')} — {testo}"
             if FORZA: cap += " (aggiornamento)"
             try:
