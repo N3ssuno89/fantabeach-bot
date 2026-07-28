@@ -9,7 +9,11 @@ on:
         description: 'vis_id separati da virgola (vuoto = tornei in corso)'
         required: false
       prova:
-        description: 'true = genera senza inviare su Telegram'
+        description: 'true = genera negli artifact senza inviare'
+        required: false
+        default: 'false'
+      forza:
+        description: 'true = invia su Telegram i dati del momento, anche fuori dagli stati'
         required: false
         default: 'false'
 
@@ -34,6 +38,7 @@ jobs:
           TELEGRAM_CHAT:  ${{ secrets.TELEGRAM_CHAT_ID }}
           TORNEI: ${{ github.event.inputs.tornei }}
           PROVA:  ${{ github.event.inputs.prova }}
+          FORZA:  ${{ github.event.inputs.forza }}
         run: python tabelloni.py
       - uses: actions/upload-artifact@v5
         if: always()
