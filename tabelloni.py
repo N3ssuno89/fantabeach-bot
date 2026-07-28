@@ -1,14 +1,20 @@
-"""FantaBeach — tabelloni qualifiche su Telegram, in tre stati.
+"""FantaBeach — tabelloni su Telegram.
 
-t0 = accoppiamenti noti          (12 partite in calendario)
-t1 = primo turno concluso        (12 partite giocate)
-t2 = qualifiche concluse         (6 spareggi giocati)
+QUALIFICHE (gare 1-18)
+  t0 = 12 partite in calendario, nessuna giocata
+  t1 = primo turno concluso
+  t2 = qualifiche concluse
 
-Ogni stato viene pubblicato una volta sola: la chiave in posted_items
-contiene lo stato, quindi t1 non viene bloccato da t0.
+POOL (gare 19-34)
+  t0 = 16 partite in calendario, nessuna giocata
+  t1 = tutte le partite dei gironi concluse
+
+Ogni stato esce una volta sola: la chiave in posted_items lo contiene.
+Con PROVA=true genera sempre l'immagine con i dati del momento, senza pubblicare.
 """
 import os, json, pathlib, requests
-from tabellone_quali import render, S
+from tabellone_quali import render as render_quali, S
+from tabellone_pool import render as render_pool
 
 SB_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SB_KEY = os.environ["SUPABASE_KEY"]
@@ -20,31 +26,22 @@ TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip(
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 MAPPA = json.loads(pathlib.Path("templates/index.json").read_text())
 H = {"apikey": SB_KEY, "Authorization": f"Bearer {SB_KEY}"}
+GIOCATA = lambda m: m.get("status") not in (None, "scheduled", "live")
 
 
-def sb(tabella, params):
-    r = requests.get(f"{SB_URL}/rest/v1/{tabella}", headers=H, params=params, timeout=30)
+def sb(tab, params):
+    r = requests.get(f"{SB_URL}/rest/v1/{tab}", headers=H, params=params, timeout=30)
     r.raise_for_status(); return r.json()
 
 
-def sb_ins(tabella, righe):
-    r = requests.post(f"{SB_URL}/rest/v1/{tabella}",
+def sb_ins(tab, righe):
+    r = requests.post(f"{SB_URL}/rest/v1/{tab}",
                       headers={**H, "Content-Type": "application/json",
                                "Prefer": "return=minimal"}, json=righe, timeout=30)
     r.raise_for_status()
 
 
-def stato(partite):
-    p1 = [m for m in partite if m["match_no"] <= 12]
-    p2 = [m for m in partite if 13 <= m["match_no"] <= 18]
-    fatte = lambda L: [m for m in L if m.get("status") not in (None, "scheduled", "live")]
-    if len(p2) == 6 and len(fatte(p2)) == 6: return "t2"
-    if len(p1) == 12 and len(fatte(p1)) == 12: return "t1"
-    if len(p1) == 12 and len(fatte(p1)) == 0: return "t0"
-    return None
-
-
-def punteggi(m):
+def punti(m):
     if not m or not m.get("result"): return None, None
     try:
         a, b = m["result"].split("-"); return int(a), int(b)
@@ -52,24 +49,68 @@ def punteggi(m):
         return None, None
 
 
-def costruisci(partite, seeds):
-    """Percorso i -> gare 2i-1, 2i e 12+i."""
-    per_no = {m["match_no"]: m for m in partite}
-    perc = []
+# ---------- QUALIFICHE ----------
+def stato_quali(p):
+    p1 = [m for m in p if m["match_no"] <= 12]
+    p2 = [m for m in p if 13 <= m["match_no"] <= 18]
+    if len(p2) == 6 and all(GIOCATA(m) for m in p2): return "t2"
+    if len(p1) == 12 and all(GIOCATA(m) for m in p1): return "t1"
+    if len(p1) == 12 and not any(GIOCATA(m) for m in p1): return "t0"
+    return None
+
+
+def dati_quali(partite, seeds):
+    pn = {m["match_no"]: m for m in partite}
+    out = []
     for i in range(1, 7):
         blocco = []
         for n in (2*i - 1, 2*i, 12 + i):
-            m = per_no.get(n)
-            if not m:
-                blocco.append((S(), S())); continue
-            a, b = punteggi(m)
+            m = pn.get(n)
+            if not m: blocco.append((S(), S())); continue
+            a, b = punti(m)
             ta, tb = m.get("team_a_name"), m.get("team_b_name")
-            blocco.append((S(seeds.get(ta, ""), ta, a, b),
-                           S(seeds.get(tb, ""), tb, b, a)))
-        fin = per_no.get(12 + i)
-        oro = bool(fin and fin.get("result"))
-        perc.append([blocco[0], blocco[1], blocco[2], oro])
-    return perc
+            blocco.append((S(seeds.get(ta, ""), ta, a, b), S(seeds.get(tb, ""), tb, b, a)))
+        fin = pn.get(12 + i)
+        out.append([blocco[0], blocco[1], blocco[2], bool(fin and fin.get("result"))])
+    return out
+
+
+# ---------- POOL ----------
+def stato_pool(p):
+    g = [m for m in p if 19 <= m["match_no"] <= 34]
+    if len(g) < 16: return None
+    if all(GIOCATA(m) for m in g): return "t1"
+    if not any(GIOCATA(m) for m in g): return "t0"
+    return None
+
+
+def dati_pool(partite, seeds):
+    pn = {m["match_no"]: m for m in partite}
+    pools = []
+    for p in range(4):
+        def coppia(n, invertito=False):
+            m = pn.get(n)
+            if not m: return (S(), S())
+            a, b = punti(m)
+            ta, tb = m.get("team_a_name"), m.get("team_b_name")
+            return (S(seeds.get(ta, ""), ta, a, b), S(seeds.get(tb, ""), tb, b, a))
+        f12, f34 = pn.get(28 + 2*p), pn.get(27 + 2*p)
+        d = {"nome": "ABCD"[p], "sf1": coppia(19 + 2*p), "sf2": coppia(20 + 2*p),
+             "f12": coppia(28 + 2*p), "f34": coppia(27 + 2*p)}
+        for chiave, m, alto, basso in (("e12", f12, "1", "2"), ("e34", f34, "3", "4")):
+            if m and m.get("result"):
+                a, b = punti(m)
+                d[chiave] = (alto, basso) if a > b else (basso, alto)
+        pools.append(d)
+    return pools
+
+
+# ---------- comune ----------
+def sfondo_per(tappa, nome):
+    for est in (".jpg", ".png"):
+        c = pathlib.Path(f"templates/{tappa}/{nome}{est}")
+        if c.exists(): return str(c)
+    return None
 
 
 def invia(percorso, didascalia):
@@ -78,6 +119,15 @@ def invia(percorso, didascalia):
                           data={"chat_id": TG_CHAT, "caption": didascalia},
                           files={"photo": f}, timeout=60)
     r.raise_for_status(); return r.json()["result"]["message_id"]
+
+
+ETICHETTE = {
+    ("quali", "t0"): "Tabellone qualificazioni",
+    ("quali", "t1"): "Qualificazioni — 1° turno concluso",
+    ("quali", "t2"): "Qualificazioni — coppie qualificate",
+    ("pool", "t0"): "Gironi — accoppiamenti",
+    ("pool", "t1"): "Gironi — classifiche finali",
+}
 
 
 def main():
@@ -90,51 +140,55 @@ def main():
     tor = {str(t["vis_id"]): t for t in sb("fivb_tournaments",
            {"select": "vis_id,city,gender", "vis_id": f"in.({','.join(vis)})"})}
     allarmi = []
+
     for v in vis:
         partite = sb("fivb_matches", {
-            "select": "match_no,team_a_name,team_b_name,result,status",
-            "tournament_vis_id": f"eq.{v}", "phase": "eq.qualification",
-            "order": "match_no"})
-        st = stato(partite)
-        print(f"  {v}: {len(partite)} partite -> stato {st}")
-        if st is None: continue
-
-        chiave = f"quali:{v}:{st}"
-        if sb("posted_items", {"select": "id", "id": f"eq.{chiave}"}):
-            print(f"     {st} gia' pubblicato"); continue
-
+            "select": "match_no,phase,team_a_name,team_b_name,result,status",
+            "tournament_vis_id": f"eq.{v}",
+            "phase": "in.(qualification,pool)", "order": "match_no"})
+        seeds = {e["team_name"]: e["pos"] for e in
+                 sb("fivb_entries", {"select": "team_name,pos", "tournament_vis_id": f"eq.{v}"})
+                 if e.get("team_name")}
         tappa = MAPPA.get(v)
-        sfondo = None
-        for est in (".jpg", ".png"):
-            c = pathlib.Path(f"templates/{tappa}/BRACKET_QUALIFICATION{est}")
-            if c.exists(): sfondo = str(c); break
-        if sfondo is None:
-            allarmi.append(f"sfondo mancante: templates/{tappa}/BRACKET_QUALIFICATION"); continue
 
-        seeds = {}
-        for e in sb("fivb_entries", {"select": "team_name,pos", "tournament_vis_id": f"eq.{v}"}):
-            if e.get("team_name"): seeds[e["team_name"]] = e["pos"]
+        for tipo, filtro, calcola, costruisci, disegna, sfondo_nome in (
+            ("quali", lambda m: m["phase"] == "qualification", stato_quali,
+             dati_quali, render_quali, "BRACKET_QUALIFICATION"),
+            ("pool", lambda m: m["phase"] == "pool", stato_pool,
+             dati_pool, render_pool, "BRACKET_POOL"),
+        ):
+            sub = [m for m in partite if filtro(m)]
+            st = calcola(sub)
+            print(f"  {v} {tipo}: {len(sub)} partite -> stato {st or '-'}")
+            if not sub: continue
+            if st is None and not PROVA: continue
 
-        dest = OUT / f"{v}_QUALI_{st}.png"
-        try:
-            render(costruisci(partite, seeds), str(dest), sfondo=sfondo)
-        except Exception as ex:
-            allarmi.append(f"render {v}/{st}: {ex}"); continue
+            chiave = f"{tipo}:{v}:{st}"
+            if st and not PROVA and sb("posted_items", {"select": "id", "id": f"eq.{chiave}"}):
+                print(f"     {st} gia' pubblicato"); continue
 
-        t = tor.get(v, {})
-        etichetta = {"t0": "Tabellone qualificazioni",
-                     "t1": "Qualificazioni — 1° turno concluso",
-                     "t2": "Qualificazioni — coppie qualificate"}[st]
-        cap = f"{t.get('city','')} {t.get('gender','')} — {etichetta}"
-        if PROVA:
-            print(f"     [prova] generata {dest.name}"); continue
-        try:
-            mid = invia(str(dest), cap)
-        except Exception as ex:
-            allarmi.append(f"invio {v}/{st}: {ex}"); continue
-        sb_ins("posted_items", [{"id": chiave, "kind": "tabellone",
-                                 "telegram_message_id": mid}])
-        print(f"     inviato {st}")
+            sf = sfondo_per(tappa, sfondo_nome)
+            if sf is None:
+                allarmi.append(f"sfondo mancante: templates/{tappa}/{sfondo_nome}"); continue
+
+            dest = OUT / f"{v}_{tipo.upper()}_{st or 'manuale'}.png"
+            try:
+                disegna(sf, costruisci(sub, seeds), str(dest)) if tipo == "pool" \
+                    else disegna(costruisci(sub, seeds), str(dest), sfondo=sf)
+            except Exception as ex:
+                allarmi.append(f"render {v}/{tipo}/{st}: {ex}"); continue
+
+            if PROVA:
+                print(f"     [prova] generata {dest.name}"); continue
+            t = tor.get(v, {})
+            cap = f"{t.get('city','')} {t.get('gender','')} — {ETICHETTE[(tipo, st)]}"
+            try:
+                mid = invia(str(dest), cap)
+            except Exception as ex:
+                allarmi.append(f"invio {v}/{tipo}/{st}: {ex}"); continue
+            sb_ins("posted_items", [{"id": chiave, "kind": "tabellone",
+                                     "telegram_message_id": mid}])
+            print(f"     inviato {tipo} {st}")
 
     for a in allarmi: print("  !", a)
     if allarmi and TG_TOKEN:
