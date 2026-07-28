@@ -127,10 +127,12 @@ def main():
     print(f"inviate: {inviate} | saltate: {saltate} | allarmi: {len(allarmi)}")
     for a in allarmi[:20]:
         print("  !", a)
-    if allarmi and not PROVA and TG_TOKEN:
+    if allarmi and TG_TOKEN:
+        pre = "[PROVA] " if PROVA else ""
         requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
                       data={"chat_id": TG_CHAT,
-                            "text": "Problemi:\n" + "\n".join(allarmi[:10])}, timeout=30)
+                            "text": pre + "Risultati — problemi:\n" + "\n".join(allarmi[:10])},
+                      timeout=30)
 
 
 if __name__ == "__main__":
