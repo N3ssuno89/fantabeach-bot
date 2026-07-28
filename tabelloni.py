@@ -40,7 +40,7 @@ def stato(partite):
     fatte = lambda L: [m for m in L if m.get("status") not in (None, "scheduled", "live")]
     if len(p2) == 6 and len(fatte(p2)) == 6: return "t2"
     if len(p1) == 12 and len(fatte(p1)) == 12: return "t1"
-    if len(p1) == 12: return "t0"
+    if len(p1) == 12 and len(fatte(p1)) == 0: return "t0"
     return None
 
 
@@ -137,10 +137,11 @@ def main():
         print(f"     inviato {st}")
 
     for a in allarmi: print("  !", a)
-    if allarmi and not PROVA and TG_TOKEN:
+    if allarmi and TG_TOKEN:
+        pre = "[PROVA] " if PROVA else ""
         requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
                       data={"chat_id": TG_CHAT,
-                            "text": "Tabelloni — problemi:\n" + "\n".join(allarmi[:10])},
+                            "text": pre + "Tabelloni — problemi:\n" + "\n".join(allarmi[:10])},
                       timeout=30)
 
 
