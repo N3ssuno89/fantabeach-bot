@@ -18,6 +18,7 @@ import os, json, pathlib, requests
 from datetime import datetime, timezone
 from tabellone_quali import render as render_quali, S
 from tabellone_pool import render as render_pool
+from tabellone_md import albero
 
 SB_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SB_KEY = os.environ["SUPABASE_KEY"]
@@ -112,6 +113,35 @@ def dati_pool(partite, seeds):
     return pools
 
 
+# ---------- MAIN DRAW ----------
+TURNI = {"t0": (35, 42), "t1": (35, 42), "t2": (43, 46), "t3": (47, 48)}
+
+def stato_md(p):
+    g = lambda a, b: [m for m in p if a <= m["match_no"] <= b]
+    r12, qf, sf = g(35, 42), g(43, 46), g(47, 48)
+    if len(sf) == 2 and all(GIOCATA(m) for m in sf): return "t3"
+    if len(qf) == 4 and all(GIOCATA(m) for m in qf): return "t2"
+    if len(r12) == 8 and all(GIOCATA(m) for m in r12): return "t1"
+    if len(r12) == 8 and not any(GIOCATA(m) for m in r12): return "t0"
+    return None
+
+
+def dati_md(partite, seeds, st):
+    pn = {m["match_no"]: m for m in partite}
+    def coppia(n):
+        m = pn.get(n)
+        if not m: return (S(), S())
+        a, b = punti(m)
+        ta, tb = m.get("team_a_name"), m.get("team_b_name")
+        return (S(seeds.get(ta, ""), ta, a, b), S(seeds.get(tb, ""), tb, b, a))
+    blocchi = {"t0": (range(35, 43), range(43, 47), "ROUND OF 12", "QUARTI DI FINALE"),
+               "t1": (range(35, 43), range(43, 47), "ROUND OF 12", "QUARTI DI FINALE"),
+               "t2": (range(43, 47), range(47, 49), "QUARTI DI FINALE", "SEMIFINALI"),
+               "t3": (range(47, 49), (50, 49), "SEMIFINALI", "FINALI")}[st]
+    sx, dx, tsx, tdx = blocchi
+    return ([coppia(n) for n in sx], [coppia(n) for n in dx], tsx, tdx)
+
+
 # ---------- comune ----------
 def sfondo_per(tappa, nome):
     for est in (".jpg", ".png"):
@@ -135,6 +165,10 @@ ETICHETTE = {
     ("pool", "t0"): "Gironi — accoppiamenti",
     ("pool", "t1"): "Gironi — semifinali concluse",
     ("pool", "t2"): "Gironi — classifiche finali",
+    ("md", "t0"): "Tabellone principale — sorteggio",
+    ("md", "t1"): "Round of 12 — risultati e quarti",
+    ("md", "t2"): "Quarti — risultati e semifinali",
+    ("md", "t3"): "Semifinali — risultati e finali",
 }
 
 
@@ -153,7 +187,7 @@ def main():
         partite = sb("fivb_matches", {
             "select": "match_no,phase,team_a_name,team_b_name,result,status",
             "tournament_vis_id": f"eq.{v}",
-            "phase": "in.(qualification,pool)", "order": "match_no"})
+            "phase": "in.(qualification,pool,main_draw)", "order": "match_no"})
         seeds = {e["team_name"]: e["pos"] for e in
                  sb("fivb_entries", {"select": "team_name,pos", "tournament_vis_id": f"eq.{v}"})
                  if e.get("team_name")}
@@ -164,6 +198,8 @@ def main():
              dati_quali, render_quali, "BRACKET_QUALIFICATION"),
             ("pool", lambda m: m["phase"] == "pool", stato_pool,
              dati_pool, render_pool, "BRACKET_POOL"),
+            ("md", lambda m: m["phase"] == "main_draw", stato_md,
+             None, None, "BRACKET_MAIN_DRAW"),
         ):
             sub = [m for m in partite if filtro(m)]
             st = calcola(sub)
@@ -184,8 +220,15 @@ def main():
 
             dest = OUT / f"{v}_{tipo.upper()}_{st or 'manuale'}.png"
             try:
-                disegna(sf, costruisci(sub, seeds), str(dest)) if tipo == "pool" \
-                    else disegna(costruisci(sub, seeds), str(dest), sfondo=sf)
+                if tipo == "md":
+                    sx, dx, tsx, tdx = dati_md(sub, seeds, st or "t1")
+                    et = ["FINALE 1° POSTO", "FINALE 3° POSTO"] if (st or "") == "t3" else None
+                    albero(sf, sx, dx, tsx, tdx, str(dest),
+                           oro_dx=((st or "") == "t3"), etichette=et)
+                elif tipo == "pool":
+                    disegna(sf, costruisci(sub, seeds), str(dest))
+                else:
+                    disegna(costruisci(sub, seeds), str(dest), sfondo=sf)
             except Exception as ex:
                 allarmi.append(f"render {v}/{tipo}/{st}: {ex}"); continue
 
