@@ -16,6 +16,10 @@ on:
         description: 'true = invia su Telegram i dati del momento, anche fuori dagli stati'
         required: false
         default: 'false'
+      replay:
+        description: 'true = ricostruisce e invia tutti gli stati in sequenza (torneo concluso)'
+        required: false
+        default: 'false'
 
 concurrency:
   group: tabelloni
@@ -39,6 +43,7 @@ jobs:
           TORNEI: ${{ github.event.inputs.tornei }}
           PROVA:  ${{ github.event.inputs.prova }}
           FORZA:  ${{ github.event.inputs.forza }}
+          REPLAY: ${{ github.event.inputs.replay }}
         run: python tabelloni.py
       - uses: actions/upload-artifact@v5
         if: always()
