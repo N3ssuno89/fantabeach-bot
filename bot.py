@@ -11,7 +11,7 @@ SB_KEY = os.environ["SUPABASE_KEY"]
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 PROVA = os.environ.get("PROVA", "").lower() == "true"
-TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip()]
+TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip().isdigit()]
 
 MAX_PER_GIRO = int(os.environ.get("LIMITE") or 15)
 PAUSA = 4                # secondi fra un invio e l'altro
