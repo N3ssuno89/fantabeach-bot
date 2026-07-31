@@ -12,7 +12,7 @@ def _bands(vals, lo, hi, gap=4, minlen=2):
     g.append((cur[0],cur[-1]))
     return [t for t in g if t[1]-t[0]>=minlen]
 
-def detect(path):
+def _auto(path):
     a=np.array(Image.open(path).convert("RGB")).astype(int)
     H,W,_=a.shape
     white=lambda arr:(arr.min(axis=-1)>195)&(arr.max(axis=-1)-arr.min(axis=-1)<50)
@@ -44,6 +44,22 @@ def detect(path):
     boxDR=(gl[1]+16, D[0]+8, right-12, D[1]-8)
     boxD=(left+12, D[0]+8, right-12, D[1]-8)   # barra intera, senza glifo VS
     return dict(A=boxA,B=boxB,C=boxC,D=boxD,DL=boxDL,DR=boxDR)
+
+# Coordinate note (verificate identiche sui 7 template San Cataldo).
+# Usate come riserva se il rilevamento automatico fallisce: succede quando
+# lo sfondo ha ampie zone chiare che confondono la ricerca dei bordi bianchi.
+RISERVA = {"A": (121, 454, 502, 1144), "B": (577, 454, 958, 1144),
+           "C": (125, 1206, 954, 1324), "D": (129, 1385, 950, 1642),
+           "DL": (129, 1385, 480, 1642), "DR": (599, 1385, 950, 1642)}
+
+
+def detect(path):
+    try:
+        return _auto(path)
+    except Exception as e:
+        print(f"    detect: rilevamento fallito su {path} ({e}) -> uso coordinate note")
+        return dict(RISERVA)
+
 
 if __name__=="__main__":
     import sys,json
