@@ -13,7 +13,7 @@ TG_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 PROVA = os.environ.get("PROVA", "").lower() == "true"
 TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip().isdigit()]
 
-MAX_PER_GIRO = int(os.environ.get("LIMITE") or 15)
+MAX_PER_GIRO = int(os.environ.get("LIMITE") or 30)
 PAUSA = 4                # secondi fra un invio e l'altro
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 MAPPA = json.loads(pathlib.Path("templates/index.json").read_text())
