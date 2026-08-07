@@ -17,16 +17,16 @@ def coppia(t):
     return " / ".join(cognome(x) for x in t.split(" - "))
 
 def match(im,d,x,y,w,titolo,t1,t2,esiti=(None,None)):
-    HH,RH=(26 if titolo else 0),46; h=HH+2*RH
+    HH,RH=(40 if titolo else 0),46; h=HH+2*RH
     ov=Image.new("RGBA",im.size,(0,0,0,0))
     ImageDraw.Draw(ov).rounded_rectangle([x+2,y+5,x+w+2,y+h+5],13,fill=(12,22,52,90))
     im.paste(Image.alpha_composite(im.convert("RGBA"),ov).convert("RGB"))
     d=ImageDraw.Draw(im)
     d.rounded_rectangle([x,y,x+w,y+h],13,fill=(253,253,255),outline=(168,184,212),width=1)
     if titolo:
-        d.rounded_rectangle([x,y,x+w,y+HH+12],13,fill=(20,38,92))
-        d.rectangle([x,y+HH-2,x+w,y+HH],fill=(20,38,92))
-        sc(im,titolo,18,(x+12,y,x+w-12,y+HH),"center",(214,232,255))
+        d.rounded_rectangle([x,y,x+w,y+HH],13,fill=(20,38,92))
+        d.rectangle([x,y+HH-14,x+w,y+HH],fill=(20,38,92))
+        sc(im,titolo,19,(x+12,y+2,x+w-12,y+HH-2),"center",(214,232,255))
     for i,(t,es) in enumerate(zip((t1,t2),esiti)):
         yy=y+HH+i*RH
         vin = t[2] is not None and t[3] is not None and t[2]>t[3]
@@ -46,9 +46,9 @@ def match(im,d,x,y,w,titolo,t1,t2,esiti=(None,None)):
 
 def render(sfondo,pools,out):
     im=Image.open(sfondo).convert("RGB"); d=ImageDraw.Draw(im)
-    Y0,PH,G=372,316,8
+    Y0,PH,G=372,318,14
     LX,LW,RX,RW=44,500,600,436
-    R2=146
+    R2=150
     for i,p in enumerate(pools):
         y=Y0+i*(PH+G)
         d.rounded_rectangle([LX,y,RX+RW,y+32],9,fill=(14,70,68))
