@@ -305,4 +305,15 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    cicli = int(os.environ.get("CICLI") or 1)
+    pausa = int(os.environ.get("PAUSA_CICLO") or 300)
+    for i in range(cicli):
+        if i:
+            print(f"--- attesa {pausa}s ---")
+            time.sleep(pausa)
+        print(f"=== ciclo {i+1}/{cicli} ===")
+        try:
+            main()
+        except Exception as ex:
+            print("  errore nel ciclo:", ex)
+
