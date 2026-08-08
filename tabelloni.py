@@ -27,7 +27,7 @@ TG_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 PROVA = os.environ.get("PROVA", "").lower() == "true"
 FORZA = os.environ.get("FORZA", "").lower() == "true"
 REPLAY = os.environ.get("REPLAY", "").lower() == "true"
-TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip().isdigit()]
+TORNEI = [t.strip() for t in os.environ.get("TORNEI", "").split(",") if t.strip()]
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 MAPPA = json.loads(pathlib.Path("templates/index.json").read_text())
@@ -82,34 +82,70 @@ def dati_quali(partite, seeds):
 
 
 # ---------- POOL ----------
+def _tipo_pool(m):
+    """Classifica la partita dal testo di round, non dal numero."""
+    r = (m.get("round") or "").lower()
+    if "semifinale" in r: return "sf"
+    if "1°/2°" in r or "1°-2°" in r or "1/2" in r: return "f12"
+    if "3°/4°" in r or "3°-4°" in r or "3/4" in r: return "f34"
+    return None
+
+
+def _girone(m, indice):
+    """Lettera del girone: colonna pool, oppure dal testo, oppure per posizione."""
+    p = (m.get("pool") or "").strip().upper()
+    if p and p[0] in "ABCD": return p[0]
+    r = (m.get("round") or "").upper()
+    for L in "ABCD":
+        if f"POOL {L}" in r: return L
+    return "ABCD"[indice // 2 % 4]
+
+
 def stato_pool(p):
-    g = [m for m in p if 19 <= m["match_no"] <= 34]
-    if len(g) < 16: return None
-    l1 = [m for m in g if m["match_no"] <= 26]
-    l2 = [m for m in g if m["match_no"] >= 27]
-    if all(GIOCATA(m) for m in l2): return "t2"
-    if all(GIOCATA(m) for m in l1) and not any(GIOCATA(m) for m in l2): return "t1"
-    if not any(GIOCATA(m) for m in g): return "t0"
+    if len(p) < 16: return None
+    sf = [m for m in p if _tipo_pool(m) == "sf"]
+    fi = [m for m in p if _tipo_pool(m) in ("f12", "f34")]
+    if not sf or not fi:                      # etichette non riconosciute
+        sf = sorted(p, key=lambda m: m["match_no"])[:8]
+        fi = sorted(p, key=lambda m: m["match_no"])[8:16]
+    if all(GIOCATA(m) for m in fi): return "t2"
+    if all(GIOCATA(m) for m in sf) and not any(GIOCATA(m) for m in fi): return "t1"
+    if not any(GIOCATA(m) for m in p): return "t0"
     return None
 
 
 def dati_pool(partite, seeds):
-    pn = {m["match_no"]: m for m in partite}
+    ordinate = sorted(partite, key=lambda m: m["match_no"])
+    gironi = {L: {"sf": [], "f12": None, "f34": None} for L in "ABCD"}
+    n_sf = 0
+    for m in ordinate:
+        t = _tipo_pool(m)
+        if t is None:                          # riserva: 8 semifinali poi 8 finali
+            i = ordinate.index(m)
+            t = "sf" if i < 8 else ("f34" if i % 2 == 0 else "f12")
+        L = _girone(m, n_sf if t == "sf" else ordinate.index(m))
+        if t == "sf":
+            gironi[L]["sf"].append(m); n_sf += 1
+        else:
+            gironi[L][t] = m
+
+    def coppia(m):
+        if not m: return (S(), S())
+        a, b = punti(m)
+        ta, tb = m.get("team_a_name"), m.get("team_b_name")
+        return (S(seeds.get(ta, ""), ta, a, b), S(seeds.get(tb, ""), tb, b, a))
+
     pools = []
-    for p in range(4):
-        def coppia(n, invertito=False):
-            m = pn.get(n)
-            if not m: return (S(), S())
-            a, b = punti(m)
-            ta, tb = m.get("team_a_name"), m.get("team_b_name")
-            return (S(seeds.get(ta, ""), ta, a, b), S(seeds.get(tb, ""), tb, b, a))
-        f12, f34 = pn.get(28 + 2*p), pn.get(27 + 2*p)
-        d = {"nome": "ABCD"[p], "sf1": coppia(19 + 2*p), "sf2": coppia(20 + 2*p),
-             "f12": coppia(28 + 2*p), "f34": coppia(27 + 2*p)}
-        for chiave, m, alto, basso in (("e12", f12, "1", "2"), ("e34", f34, "3", "4")):
+    for L in "ABCD":
+        g = gironi[L]
+        sf = g["sf"] + [None, None]
+        d = {"nome": L, "sf1": coppia(sf[0]), "sf2": coppia(sf[1]),
+             "f12": coppia(g["f12"]), "f34": coppia(g["f34"])}
+        for chiave, m, alto, basso in (("e12", g["f12"], "1", "2"),
+                                       ("e34", g["f34"], "3", "4")):
             if m and m.get("result"):
                 a, b = punti(m)
-                d[chiave] = (alto, basso) if a > b else (basso, alto)
+                if a is not None: d[chiave] = (alto, basso) if a > b else (basso, alto)
         pools.append(d)
     return pools
 
@@ -217,7 +253,7 @@ def main():
 
     for v in vis:
         partite = sb("fivb_matches", {
-            "select": "match_no,phase,team_a_name,team_b_name,result,status",
+            "select": "match_no,phase,round,pool,team_a_name,team_b_name,result,status",
             "tournament_vis_id": f"eq.{v}",
             "phase": "in.(qualification,pool,main_draw)", "order": "match_no"})
         seeds = {e["team_name"]: e["pos"] for e in
@@ -305,15 +341,4 @@ def main():
 
 
 if __name__ == "__main__":
-    cicli = int(os.environ.get("CICLI") or 1)
-    pausa = int(os.environ.get("PAUSA_CICLO") or 300)
-    for i in range(cicli):
-        if i:
-            print(f"--- attesa {pausa}s ---")
-            time.sleep(pausa)
-        print(f"=== ciclo {i+1}/{cicli} ===")
-        try:
-            main()
-        except Exception as ex:
-            print("  errore nel ciclo:", ex)
-
+    main()
